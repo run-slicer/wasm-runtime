@@ -1,0 +1,3 @@
+[submodule "teavm"]
+	path = teavm
+	url = https://github.com/konsoletyper/teavm.git
