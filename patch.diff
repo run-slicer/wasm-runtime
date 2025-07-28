@@ -1,16 +1,17 @@
 diff --git a/teavm-runtime.js b/runtime.js
-index 4c11730..4c17022 100644
+index 4c11730..b7b8b6a 100644
 --- a/teavm-runtime.js
 +++ b/runtime.js
-@@ -13,7 +13,6 @@
+@@ -13,7 +13,7 @@
   *  See the License for the specific language governing permissions and
   *  limitations under the License.
   */
 -// !BEGINNING!
++import { fileURLToPath } from 'url'
  
  let globalsCache = new Map();
  let stackDeobfuscator = null;
-@@ -208,7 +207,7 @@ function coreImports(imports, context, options, module) {
+@@ -208,7 +208,7 @@ function coreImports(imports, context, options, module) {
              return context.exports["teavm.memory"].buffer;
          }
      };
@@ -19,7 +20,7 @@ index 4c11730..4c17022 100644
          let memoryOptions = options.memory || {};
          let memoryInstance = memoryOptions["external"];
          if (!memoryInstance) {
-@@ -655,10 +654,21 @@ function wrapImport(importObj) {
+@@ -655,10 +655,21 @@ function wrapImport(importObj) {
      });
  }
  
@@ -43,7 +44,7 @@ index 4c11730..4c17022 100644
          if (kind !== "global" || module in imports) {
              continue;
          }
-@@ -693,15 +703,21 @@ async function load(src, options) {
+@@ -693,15 +704,21 @@ async function load(src, options) {
          options = {};
      }
  
@@ -70,7 +71,7 @@ index 4c11730..4c17022 100644
      ]);
  
      const importObj = {};
-@@ -711,7 +727,7 @@ async function load(src, options) {
+@@ -711,7 +728,7 @@ async function load(src, options) {
          options.installImports(importObj);
      }
      if (!options.noAutoImports) {
@@ -79,7 +80,7 @@ index 4c11730..4c17022 100644
      }
      let instance = await WebAssembly.instantiate(module, importObj);
  
-@@ -739,7 +755,15 @@ async function load(src, options) {
+@@ -739,7 +756,15 @@ async function load(src, options) {
      return teavm;
  }
  
@@ -96,7 +97,7 @@ index 4c11730..4c17022 100644
  
  function hasStringBuiltins() {
      if (stringBuiltinsCache === null) {
-@@ -757,22 +781,15 @@ function hasStringBuiltins() {
+@@ -757,22 +782,15 @@ function hasStringBuiltins() {
      return stringBuiltinsCache;
  }
  
@@ -123,7 +124,7 @@ index 4c11730..4c17022 100644
          return instance;
      } catch (e) {
          console.warn("Could not load deobfuscator", e);
-@@ -780,6 +797,51 @@ async function getDeobfuscator(path, options) {
+@@ -780,6 +798,51 @@ async function getDeobfuscator(path, options) {
      }
  }
  
@@ -175,7 +176,7 @@ index 4c11730..4c17022 100644
  function createDeobfuscator(module, externalData, deobfuscatorFactory) {
      let deobfuscator = null;
      let deobfuscatorInitialized = false;
-@@ -808,17 +870,33 @@ function createDeobfuscator(module, externalData, deobfuscatorFactory) {
+@@ -808,17 +871,33 @@ function createDeobfuscator(module, externalData, deobfuscatorFactory) {
      }
  }
  
