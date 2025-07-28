@@ -704,6 +704,13 @@ async function load(src, options) {
     }
 
     let isNodeJs = options.nodejs || typeof process !== "undefined";
+
+    // patch start - use path if is a file on the file system
+    if (src.startsWith("file://") && isNodeJs) {
+        src = fileURLToPath(src)
+    }
+    // patch end
+
     let deobfuscatorOptions = options.stackDeobfuscator || {};
     let debugInfoLocation = deobfuscatorOptions.infoLocation || "auto";
     let compilationPromise = compileModule(src, isNodeJs);
