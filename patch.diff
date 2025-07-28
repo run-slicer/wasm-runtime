@@ -1,5 +1,5 @@
 diff --git a/teavm-runtime.js b/runtime.js
-index 4c11730..3f54e86 100644
+index 4c11730..f1e529e 100644
 --- a/teavm-runtime.js
 +++ b/runtime.js
 @@ -13,7 +13,6 @@
@@ -10,6 +10,15 @@ index 4c11730..3f54e86 100644
  
  let globalsCache = new Map();
  let stackDeobfuscator = null;
+@@ -208,7 +207,7 @@ function coreImports(imports, context, options, module) {
+             return context.exports["teavm.memory"].buffer;
+         }
+     };
+-    if (hasImportedMemory(module)) {
++    if (module && hasImportedMemory(module)) {
+         let memoryOptions = options.memory || {};
+         let memoryInstance = memoryOptions["external"];
+         if (!memoryInstance) {
 @@ -655,10 +654,21 @@ function wrapImport(importObj) {
      });
  }
@@ -34,7 +43,27 @@ index 4c11730..3f54e86 100644
          if (kind !== "global" || module in imports) {
              continue;
          }
-@@ -711,7 +721,7 @@ async function load(src, options) {
+@@ -693,15 +703,14 @@ async function load(src, options) {
+         options = {};
+     }
+ 
++    let isNodeJs = options.nodejs || typeof process !== "undefined";
+     let deobfuscatorOptions = options.stackDeobfuscator || {};
+     let debugInfoLocation = deobfuscatorOptions.infoLocation || "auto";
+-    let compilationPromise = typeof src === "string"
+-        ? WebAssembly.compileStreaming(fetch(src), { builtins: ["js-string"] })
+-        : WebAssembly.compile(src, { builtins: ["js-string"] });
++    let compilationPromise = compileModule(src, isNodeJs);
+     let [deobfuscatorFactory, module, debugInfo] = await Promise.all([
+-        deobfuscatorOptions.enabled ? getDeobfuscator(src, deobfuscatorOptions) : Promise.resolve(null),
++        deobfuscatorOptions.enabled ? getDeobfuscator(src, deobfuscatorOptions, isNodeJs) : Promise.resolve(null),
+         compilationPromise,
+-        fetchExternalDebugInfo(src, debugInfoLocation, deobfuscatorOptions)
++        fetchExternalDebugInfo(src, debugInfoLocation, deobfuscatorOptions, isNodeJs)
+     ]);
+ 
+     const importObj = {};
+@@ -711,7 +720,7 @@ async function load(src, options) {
          options.installImports(importObj);
      }
      if (!options.noAutoImports) {
@@ -43,12 +72,142 @@ index 4c11730..3f54e86 100644
      }
      let instance = await WebAssembly.instantiate(module, importObj);
  
-@@ -821,4 +831,6 @@ async function fetchExternalDebugInfo(path, debugInfoLocation, options) {
+@@ -739,7 +748,15 @@ async function load(src, options) {
+     return teavm;
+ }
+ 
+-let stringBuiltinsCache = null;
++async function compileModule(src, isNodeJs) {
++    if (typeof src !== "string") {
++        return await WebAssembly.compile(src, { builtins: ["js-string"] });
++    }
++    let [response, close] = await openPath(src, isNodeJs);
++    let result = await WebAssembly.compileStreaming(response, { builtins: ["js-string"] });
++    close();
++    return result;
++}
+ 
+ function hasStringBuiltins() {
+     if (stringBuiltinsCache === null) {
+@@ -757,22 +774,15 @@ function hasStringBuiltins() {
+     return stringBuiltinsCache;
+ }
+ 
+-async function getDeobfuscator(path, options) {
++async function getDeobfuscator(path, options, isNodeJs) {
+     if (typeof path !== "string" && !options.path) {
          return null;
      }
-     return new Int8Array(await response.arrayBuffer());
+     try {
+         const importObj = {};
+-        const defaultsResult = defaults(importObj, {});
+-        const deobfuscatorPath = options.path || path + "-deobfuscator.wasm";
+-        const { instance } = await WebAssembly.instantiateStreaming(
+-            fetch(deobfuscatorPath),
+-            importObj,
+-            {
+-                builtins: ["js-string"]
+-            }
+-        );
+-        defaultsResult.supplyExports(instance.exports)
++        const defaultsResult = defaults(importObj, {}, {});
++        const instance = await instantiateModule(options.path, path, isNodeJs, importObj);
++        defaultsResult.supplyExports(instance.exports);
+         return instance;
+     } catch (e) {
+         console.warn("Could not load deobfuscator", e);
+@@ -780,6 +790,51 @@ async function getDeobfuscator(path, options) {
+     }
+ }
+ 
++async function instantiateModule(optionsPath, path, isNodeJs, importObj) {
++    if (typeof optionsPath === "object") {
++        return await WebAssembly.instantiate(optionsPath, importObj, { builtins: ["js-string"] });
++    }
++    const deobfuscatorPath = optionsPath || path + "-deobfuscator.wasm";
++    let [response, close] = await openPath(deobfuscatorPath, isNodeJs);
++    const { instance } = await WebAssembly.instantiateStreaming(
++        response,
++        importObj,
++        {
++            builtins: ["js-string"]
++        }
++    );
++    close();
++    return instance;
++}
++
++async function openPath(src, isNodeJs) {
++    let response;
++    let close;
++    if (!isNodeJs) {
++        response = await fetch(src);
++        close = () => {};
++    } else {
++        let fs = await importNodeFs();
++        let fileHandle = await fs.open(src, "r");
++        let stream = await fileHandle.readableWebStream();
++        response = new Response(stream, {
++            headers: { 'Content-Type': 'application/wasm' },
++        });
++        close = () => fileHandle.close();
++    }
++    return [response, close];
++}
++
++let nodeFsImportObject;
++async function importNodeFs() {
++    if (!nodeFsImportObject) {
++        nodeFsImportObject = import('node:fs/promises')
++    }
++    return await nodeFsImportObject;
++}
++
++let stringBuiltinsCache = null;
++
+ function createDeobfuscator(module, externalData, deobfuscatorFactory) {
+     let deobfuscator = null;
+     let deobfuscatorInitialized = false;
+@@ -808,17 +863,33 @@ function createDeobfuscator(module, externalData, deobfuscatorFactory) {
+     }
+ }
+ 
+-async function fetchExternalDebugInfo(path, debugInfoLocation, options) {
+-    if (!options.enabled || typeof path !== "string") {
++async function fetchExternalDebugInfo(path, debugInfoLocation, options, isNodeJs) {
++    if (!options.enabled) {
++        return null;
++    }
++    if (typeof path !== "string" && !options.externalInfoPath) {
+         return null;
+     }
+     if (debugInfoLocation !== "auto" && debugInfoLocation !== "external") {
+         return null;
+     }
++    if (typeof options.externalInfoPath === "object") {
++        return options.externalInfoPath;
++    }
+     let location = options.externalInfoPath || path + ".teadbg";
+-    let response = await fetch(location);
+-    if (!response.ok) {
+-        return null;
++    let buffer;
++    if (!isNodeJs) {
++        let response = await fetch(location);
++        if (!response.ok) {
++            return null;
++        }
++        buffer = await response.arrayBuffer();
++    } else {
++        let fs = await importNodeFs();
++        buffer = (await fs.readFile(location)).buffer;
+     }
+-    return new Int8Array(await response.arrayBuffer());
 -}
 \ No newline at end of file
++
++    return new Int8Array(buffer);
 +}
 +
 +export { load, defaults, wrapImport };
+\ No newline at end of file
