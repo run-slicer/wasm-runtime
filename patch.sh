@@ -2,6 +2,5 @@
 
 set -e
 
-git submodule update --init --recursive
 cp ./teavm/core/src/main/js/wasm-gc-runtime/runtime.js ./teavm-runtime.js
-git apply patch.diff
+git apply --reject --whitespace=fix patch.diff

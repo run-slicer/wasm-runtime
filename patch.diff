@@ -1,5 +1,5 @@
 diff --git a/teavm-runtime.js b/runtime.js
-index 4c11730..3f54e86 100644
+index 263e97f..f8bf663 100644
 --- a/teavm-runtime.js
 +++ b/runtime.js
 @@ -13,7 +13,6 @@
@@ -10,43 +10,54 @@ index 4c11730..3f54e86 100644
  
  let globalsCache = new Map();
  let stackDeobfuscator = null;
-@@ -655,10 +654,21 @@ function wrapImport(importObj) {
+@@ -655,10 +654,32 @@ function wrapImport(importObj) {
      });
  }
  
 -async function wrapImports(wasmModule, imports) {
 +// patch start
-+async function readImports(wasmModule, src) {
++async function readImports(wasmModule, src, isNodeJs) {
 +    try {
 +        return WebAssembly.Module.imports(wasmModule);
 +    } catch (e) {
++        let moduleData = src, close = () => {};
++        if (typeof src === "string") {
++            const [response, closeFunc] = await openPath(src, isNodeJs);
++            moduleData = await response.arrayBuffer();
++            close = closeFunc;
++        }
++
 +        const { parseImports } = await import("./wasm-imports-parser.js");
-+        return parseImports(typeof src === "string" ? await (await fetch(src)).arrayBuffer() : src);
++        try {
++            return parseImports(moduleData);
++        } finally {
++            close();
++        }
 +    }
 +}
 +// patch end
 +
-+async function wrapImports(wasmModule, imports, src) { // patch - src
++async function wrapImports(wasmModule, imports, src, isNodeJs) { // patch - src
      let promises = [];
      let propertiesToAdd = {};
 -    for (let { module, name, kind } of WebAssembly.Module.imports(wasmModule)) {
-+    for (let { module, name, kind } of await readImports(wasmModule, src)) { // patch - readImports
++    for (let { module, name, kind } of await readImports(wasmModule, src, isNodeJs)) { // patch - readImports
          if (kind !== "global" || module in imports) {
              continue;
          }
-@@ -711,7 +721,7 @@ async function load(src, options) {
+@@ -710,7 +731,7 @@ async function load(src, options) {
          options.installImports(importObj);
      }
      if (!options.noAutoImports) {
 -        await wrapImports(module, importObj);
-+        await wrapImports(module, importObj, src); // patch - src
++        await wrapImports(module, importObj, src, isNodeJs); // patch - src
      }
      let instance = await WebAssembly.instantiate(module, importObj);
  
-@@ -821,4 +831,6 @@ async function fetchExternalDebugInfo(path, debugInfoLocation, options) {
-         return null;
+@@ -880,4 +901,6 @@ async function fetchExternalDebugInfo(path, debugInfoLocation, options, isNodeJs
      }
-     return new Int8Array(await response.arrayBuffer());
+ 
+     return new Int8Array(buffer);
 -}
 \ No newline at end of file
 +}
