@@ -1,5 +1,5 @@
 diff --git a/teavm-runtime.js b/runtime.js
-index 263e97f..f8bf663 100644
+index 39e8bc0..ae3b7bd 100644
 --- a/teavm-runtime.js
 +++ b/runtime.js
 @@ -13,7 +13,6 @@
@@ -10,7 +10,7 @@ index 263e97f..f8bf663 100644
  
  let globalsCache = new Map();
  let stackDeobfuscator = null;
-@@ -655,10 +654,32 @@ function wrapImport(importObj) {
+@@ -688,10 +687,32 @@ function wrapImport(importObj) {
      });
  }
  
@@ -45,7 +45,7 @@ index 263e97f..f8bf663 100644
          if (kind !== "global" || module in imports) {
              continue;
          }
-@@ -710,7 +731,7 @@ async function load(src, options) {
+@@ -743,7 +764,7 @@ async function load(src, options) {
          options.installImports(importObj);
      }
      if (!options.noAutoImports) {
@@ -54,7 +54,7 @@ index 263e97f..f8bf663 100644
      }
      let instance = await WebAssembly.instantiate(module, importObj);
  
-@@ -880,4 +901,6 @@ async function fetchExternalDebugInfo(path, debugInfoLocation, options, isNodeJs
+@@ -913,4 +934,6 @@ async function fetchExternalDebugInfo(path, debugInfoLocation, options, isNodeJs
      }
  
      return new Int8Array(buffer);

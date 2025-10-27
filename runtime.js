@@ -41,6 +41,7 @@ function defaults(imports, userExports, options, module) {
     dateImports(imports);
     consoleImports(imports, context);
     coreImports(imports, context, options, module);
+    asyncImports(imports, context);
     jsoImports(imports, context);
     imports.teavmMath = Math;
     return {
@@ -65,10 +66,11 @@ class JavaError extends Error {
     }
     get message() {
         let exceptionMessage = this.#context.exports["teavm.exceptionMessage"];
-        if (typeof exceptionMessage === "function") {
+        let stringToJs = this.#context.exports["teavm.stringToJs"];
+        if (typeof exceptionMessage === "function" && typeof stringToJs === "function") {
             let message = exceptionMessage(this[javaExceptionSymbol]);
             if (message != null) {
-                return message;
+                return stringToJs(message);
             }
         }
         return "(could not fetch message)";
@@ -224,6 +226,20 @@ function coreImports(imports, context, options, module) {
     }
 }
 
+function asyncImports(imports) {
+    imports.teavmAsync = {
+        offer(instance, fn, time) {
+            let dt = Math.max(0, time - Date.now());
+            return setTimeout(() => {
+                fn(instance);
+            }, dt);
+        },
+        kill(id) {
+            clearTimeout(id);
+        }
+    };
+}
+
 function hasImportedMemory(module) {
     return WebAssembly.Module.imports(module)
         .findIndex(({module, name, kind}) => module === "teavm" && name === "memory" && kind === "memory") >= 0;
@@ -326,16 +342,23 @@ function jsoImports(imports, context) {
             rethrowJsAsJava(e);
         }
     }
-    function defineFunction(fn) {
+    function defineFunction(fn, vararg) {
         let params = [];
+        let paramsForString = [];
         for (let i = 0; i < fn.length; ++i) {
-            params.push("p" + i);
+            let name = "p" + i;
+            params.push(name);
+            paramsForString.push(name);
         }
-        let paramsAsString = params.length === 0 ? "" : params.join(", ");
+        if (vararg) {
+            let last = paramsForString.length - 1;
+            paramsForString[last] = "..." + paramsForString[last];
+        }
+        let paramsAsString = paramsForString.join(", ");
         return new Function("rethrowJavaAsJs", "fn",
             `return function(${paramsAsString}) {\n` +
             `    try {\n` +
-            `        return fn(${paramsAsString});\n` +
+            `        return fn(${params.join(', ')});\n` +
             `    } catch (e) {\n` +
             `        rethrowJavaAsJs(e);\n` +
             `    }\n` +
@@ -405,12 +428,19 @@ function jsoImports(imports, context) {
         exportClass(cls) {
             return cls[wrapperCallMarkerSymbol];
         },
-        defineMethod(cls, name, fn) {
+        defineMethod(cls, name, fn, vararg) {
             let params = [];
+            let paramsForString = [];
             for (let i = 1; i < fn.length; ++i) {
-                params.push("p" + i);
+                let name = "p" + i;
+                params.push(name);
+                paramsForString.push(name);
             }
-            let paramsAsString = params.length === 0 ? "" : params.join(", ");
+            if (vararg) {
+                let last = paramsForString.length - 1;
+                paramsForString[last] = "..." + paramsForString[last];
+            }
+            let paramsAsString = paramsForString.join(", ");
             cls.prototype[name] = new Function("rethrowJavaAsJs", "fn",
                 `return function(${paramsAsString}) {\n` +
                 `    try {\n` +
@@ -421,8 +451,8 @@ function jsoImports(imports, context) {
                 `};`
             )(rethrowJavaAsJs, fn);
         },
-        defineStaticMethod(cls, name, fn) {
-            cls[name] = defineFunction(fn);
+        defineStaticMethod(cls, name, fn, vararg) {
+            cls[name] = defineFunction(fn, vararg);
         },
         defineFunction: defineFunction,
         defineProperty(cls, name, getFn, setFn) {
@@ -486,6 +516,9 @@ function jsoImports(imports, context) {
             return instance[javaObjectSymbol];
         },
         asFunction(instance, propertyName) {
+            if (instance === null || instance === undefined) {
+                return null;
+            }
             let functions = instance[functionsSymbol];
             if (functions === null) {
                 functions = Object.create(null);
@@ -552,7 +585,7 @@ function jsoImports(imports, context) {
                 return result;
             }
         },
-        isPrimitive: (value, type) => typeof value === type,
+        isPrimitive: (value, type) => typeof value === type || value === null,
         instanceOf: (value, type) => value instanceof type,
         instanceOfOrNull: (value, type) => value === null || value instanceof type,
         sameRef: (a, b) => a === b,
